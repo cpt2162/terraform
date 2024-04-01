@@ -1,86 +1,94 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 4.16"
-    }
-  }
-}
+# Create iam policy for s3
+resource "aws_iam_policy" "s3_policy" {
+  name = "s3_policy"
 
-provider "aws" {
-  region = "us-east-1"
-}
-
-# Create admin iam policy document
-data "aws_iam_policy_document" "admin_policy_doc" {
-  statement {
-    sid     = "1"
-    actions = ["s3:GetObject", "s3:GetObjectTagging", "s3:ListObject", "s3:*"]
-    resources = [
-      "arn:aws:s3:::*",
-      "arn:aws:s3:::terraform-cpt/*",
-      "arn:aws:s3:::terraform-cpt/lambda_function_jsr.zip"
-    ]
-  }
-
-  statement {
-    sid       = "2"
-    actions   = ["s3:CreateBucket"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid       = "3"
-    actions   = ["dynamodb:*"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid       = "4"
-    actions   = ["comprehend:*"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid       = "5"
-    actions   = ["lambda:*"]
-    resources = ["*"]
-  }
-
-  statement {
-    actions   = ["sts:AssumeRole"]
-    resources = [resource.aws_iam_role.admin.arn]
-  }
-}
-
-## Create Admin role
-resource "aws_iam_role" "admin" {
-  name = "admin"
-  assume_role_policy = jsonencode({
+  policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:ListObject"]
         Effect = "Allow"
-        Sid    = ""
-        Principal = {
-          AWS = "*"
-        }
-        Action = "sts:AssumeRole"
+        Resource = [
+          "arn:aws:s3:::*",
+          "arn:aws:s3:::terraform-cpt/*",
+          "arn:aws:s3:::terraform-cpt/lambda_function_jsr.zip"
+        ]
+      },
+      {
+        Action   = ["s3:CreateBucket"]
+        Effect   = "Allow"
+        Resource = "*"
       }
     ]
   })
 }
 
-resource "aws_iam_policy" "admin_policy" {
-  name   = "admin"
-  path   = "/"
-  policy = data.aws_iam_policy_document.admin_policy_doc.json
+# Create iam policy for dynamo
+resource "aws_iam_policy" "dynamo_policy" {
+  name = "dynamo_policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = ["dynamodb:*"]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
 }
 
-resource "aws_iam_role_policy_attachment" "attach" {
-  role       = resource.aws_iam_role.admin.name
-  policy_arn = resource.aws_iam_policy.admin_policy.arn
+# Create iam policy for comprehend
+resource "aws_iam_policy" "comprehend_policy" {
+  name = "comprehend_policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = ["comprehend:*"]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
 }
+
+# Create iam policy for lambda
+resource "aws_iam_policy" "lambda_policy" {
+  name = "lambda_policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = ["lambda:*"]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# Create iam policy for iam
+resource "aws_iam_policy" "iam_policy" {
+  name = "iam_policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = ["iam:*"]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+
+#############################################
 
 ## DynamoDB
 resource "aws_dynamodb_table" "game_expectations" {
@@ -187,12 +195,12 @@ resource "aws_dynamodb_table" "game_expectations" {
 }
 
 # public bucket
-resource "aws_s3_bucket" "terraform-cpt" {
+data "aws_s3_bucket" "terraform-cpt" {
   bucket = "terraform-cpt"
 }
 
 # Lambda deployment package from public S3
-resource "aws_s3_object" "lambda_deployment_package" {
+data "aws_s3_object" "lambda_deployment_package" {
   bucket = "terraform-cpt"
   key    = "lambda_function_jsr.zip"
 }
@@ -203,7 +211,7 @@ resource "aws_lambda_permission" "allow_bucket" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.extract_sentiment.arn
   principal     = "s3.amazonaws.com"
-  source_arn    = resource.aws_s3_bucket.terraform-cpt.arn
+  source_arn    = data.aws_s3_bucket.terraform-cpt.arn
 }
 
 # 
@@ -225,7 +233,7 @@ resource "aws_lambda_function" "extract_sentiment" {
 
 #
 resource "aws_s3_bucket_notification" "bucket_notification" {
-  bucket = resource.aws_s3_bucket.terraform-cpt.id
+  bucket = data.aws_s3_bucket.terraform-cpt.id
   lambda_function {
     lambda_function_arn = aws_lambda_function.extract_sentiment.arn
     events              = ["s3:ObjectCreated:*"]
